@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from .models_inspected import Contents
 
 
 
@@ -19,6 +20,22 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.username
+
+
+class Favorite(models.Model):
+    """
+    Kullanıcıların favori film/dizi/kitap kaydı
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favorites')
+    content = models.ForeignKey(Contents, on_delete=models.CASCADE, related_name='favorited_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'content')  # Bir kullanıcı aynı içeriği 2 kez favori yapamaz
+        ordering = ['-created_at']  # Yeni eklenenler ilk
+
+    def __str__(self):
+        return f"{self.user.username} - {self.content.title}"
     
 
 

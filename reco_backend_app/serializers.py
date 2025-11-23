@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models_inspected import Contents   
 from rest_framework_simplejwt.tokens import RefreshToken
+from .models import Favorite
 
 
 
@@ -90,6 +91,31 @@ class ContentDetailSerializer(serializers.ModelSerializer):
             'tagline', 'number_of_seasons', 'number_of_episodes', 'backdrop_url',
             'content_type', 'status'
         ]
+
+
+class FavoriteSerializer(serializers.ModelSerializer):
+    """
+    Kullanıcının favorilerine içerik ekle/çıkar
+    """
+    content_detail = ContentTitleSerializer(source='content', read_only=True)
+    
+    class Meta:
+        model = Favorite
+        fields = ['id', 'content', 'content_detail', 'created_at']
+        read_only_fields = ['id', 'created_at']
+    
+    def create(self, validated_data):
+        # Giriş yapan kullanıcıyı otomatik ata
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class IsFavoriteSerializer(serializers.Serializer):
+    """
+    Bir içerinin favoride olup olmadığını kontrol et
+    """
+    is_favorite = serializers.BooleanField()
+
 
 
 

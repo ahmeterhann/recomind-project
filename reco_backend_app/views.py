@@ -1,18 +1,19 @@
 from django.shortcuts import render
 from rest_framework import generics, status
 from rest_framework.response import Response
-from .serializers import RegisterSerializer, LoginSerializer, ProfileSerializer
+from .serializers import RegisterSerializer, LoginSerializer, ProfileSerializer, FavoriteSerializer, IsFavoriteSerializer
 from rest_framework import generics
 from .models_inspected import Contents
 from .serializers import ContentTitleSerializer, ContentDetailSerializer
 from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
-from .models import User
+from .models import User, Favorite
 from rest_framework_simplejwt.tokens import RefreshToken
-
+from rest_framework.permissions import AllowAny
 
 
 class RegisterView(generics.CreateAPIView):
+    permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
 
     def create(self, request, *args, **kwargs):
@@ -23,6 +24,7 @@ class RegisterView(generics.CreateAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class LoginView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
     serializer_class = LoginSerializer
 
     def post(self, request, *args, **kwargs):
@@ -119,6 +121,78 @@ class ContentDetailView(generics.RetrieveAPIView):
     queryset = Contents.objects.all()
     serializer_class = ContentDetailSerializer
     lookup_field = 'tmdb_id'
+
+
+class FavoriteListCreateView(generics.ListCreateAPIView):
+    """
+    Favorileri listele ve yeni favori ekle
+    GET: Kullanıcının tüm favorilerini döndür
+    POST: İçeriği favorilere ekle
+    """
+    serializer_class = FavoriteSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Favorite.objects.filter(user=self.request.user)
+
+
+class FavoriteDetailView(generics.DestroyAPIView):
+    """
+    Favorilerden çıkar
+    DELETE: İçeriği favorilerden sil
+    """
+    serializer_class = FavoriteSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'content'
+
+    def get_queryset(self):
+        return Favorite.objects.filter(user=self.request.user)
+
+
+class IsFavoriteView(generics.GenericAPIView):
+    """
+    Bir içerinin favoride olup olmadığını kontrol et
+    GET: /contents/<tmdb_id>/is-favorite/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = IsFavoriteSerializer
+
+    def get(self, request, tmdb_id):
+        try:
+            favorite = Favorite.objects.get(user=request.user, content__tmdb_id=tmdb_id)
+            return Response({"is_favorite": True})
+        except Favorite.DoesNotExist:
+            return Response({"is_favorite": False})
+
+
+class SearchView(generics.ListAPIView):
+    """
+    Film ve dizi arama
+    GET: /search/?q=inception&content_type=movie
+    Parameters:
+        - q: Aranacak kelime (zorunlu)
+        - content_type: "movie" veya "tv" (opsiyonel)
+    """
+    serializer_class = ContentTitleSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        q = self.request.query_params.get('q', '').strip()
+        content_type = self.request.query_params.get('content_type', None)
+
+        if not q or len(q) < 1:
+            return Contents.objects.none()
+
+        # Başlık veya açıklamada arama yap
+        query = Q(title__icontains=q) | Q(overview__icontains=q)
+        
+        # İçerik tipi filtresi (opsiyonel)
+        if content_type in ['movie', 'tv']:
+            query &= Q(content_type__iexact=content_type)
+
+        return Contents.objects.filter(query).order_by('-rating', '-vote_count')
+
+
 
 
 
