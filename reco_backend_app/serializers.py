@@ -67,8 +67,24 @@ class ProfileSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'date_joined']
 
-
 class ContentTitleSerializer(serializers.ModelSerializer):
+    genres = serializers.SerializerMethodField()
+    
+    def get_genres(self, obj):
+        """Parse genres string to list"""
+        if not obj.genres:
+            return []
+        if isinstance(obj.genres, list):
+            return obj.genres
+        # Try to parse JSON string
+        import json
+        try:
+            parsed = json.loads(obj.genres)
+            return parsed if isinstance(parsed, list) else []
+        except:
+            # Fallback: split by comma
+            return [g.strip() for g in obj.genres.split(',') if g.strip()]
+    
     class Meta:
         model = Contents
         fields = [
