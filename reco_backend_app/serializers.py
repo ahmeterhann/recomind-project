@@ -2,7 +2,8 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models_inspected import Contents   
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Favorite
+from .models import Favorite, ContentReview
+from django.db.models import Avg, Count
 
 
 
@@ -100,6 +101,9 @@ class ContentTitleSerializer(serializers.ModelSerializer):
 
 class ContentDetailSerializer(serializers.ModelSerializer):
     genres = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    rating_count = serializers.SerializerMethodField()
+    latest_reviews = serializers.SerializerMethodField()
     
     def get_genres(self, obj):
         """Parse genres string to list"""
@@ -122,8 +126,19 @@ class ContentDetailSerializer(serializers.ModelSerializer):
             'tmdb_id', 'title', 'overview', 'genres', 'release_year', 'image_url',
             'rating', 'vote_count', 'imdb_rating', 'runtime', 'original_language',
             'tagline', 'number_of_seasons', 'number_of_episodes', 'backdrop_url',
-            'content_type', 'status'
+            'content_type', 'status', 'average_rating', 'rating_count', 'latest_reviews'
         ]
+
+    def get_average_rating(self, obj):
+        aggregate = obj.content_reviews.aggregate(avg=Avg('rating'))
+        return aggregate['avg'] or 0.0
+
+    def get_rating_count(self, obj):
+        return obj.content_reviews.count()
+
+    def get_latest_reviews(self, obj):
+        reviews = obj.content_reviews.select_related('user').order_by('-created_at')[:5]
+        return ContentReviewSerializer(reviews, many=True).data
 
 
 class FavoriteSerializer(serializers.ModelSerializer):
@@ -149,6 +164,31 @@ class IsFavoriteSerializer(serializers.Serializer):
     """
     is_favorite = serializers.BooleanField()
 
+
+class ContentReviewSerializer(serializers.ModelSerializer):
+    """
+    Yorum ve puan verisini serialize eder
+    """
+    user = serializers.StringRelatedField(read_only=True)
+    comment = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = ContentReview
+        fields = ['id', 'user', 'content', 'rating', 'comment', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at', 'content']
+
+    def validate_rating(self, value):
+        if value < 1 or value > 10:
+            raise serializers.ValidationError("Puan 1 ile 10 arasında olmalıdır.")
+        return value
+
+
+class ContentReviewSummarySerializer(serializers.Serializer):
+    """
+    İçerik detayında gösterilecek özet istatistikler
+    """
+    average_rating = serializers.FloatField()
+    rating_count = serializers.IntegerField()
 
 
 

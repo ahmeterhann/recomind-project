@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     RegisterView, LoginView, MovieListView, MovieByGenreView, TvListView, 
     TvByGenreView, ProfileView, ContentDetailView, FavoriteListCreateView, 
-    FavoriteDetailView, IsFavoriteView, SearchView
+    FavoriteDetailView, IsFavoriteView, SearchView, ContentReviewListCreateView,
+    ContentReviewDetailView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -21,6 +22,8 @@ urlpatterns = [
     path('favorites/', FavoriteListCreateView.as_view(), name='favorite_list_create'),
     path('favorites/<str:content>/', FavoriteDetailView.as_view(), name='favorite_detail'),
     path('contents/<str:tmdb_id>/is-favorite/', IsFavoriteView.as_view(), name='is_favorite'),
+    path('contents/<str:tmdb_id>/reviews/', ContentReviewListCreateView.as_view(), name='content_reviews'),
+    path('contents/<str:tmdb_id>/reviews/<int:pk>/', ContentReviewDetailView.as_view(), name='content_review_detail'),
     
     # Arama endpoint'i
     path('search/', SearchView.as_view(), name='search'),

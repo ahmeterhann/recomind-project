@@ -1,13 +1,13 @@
-from django.shortcuts import render
-from rest_framework import generics, status
+from django.shortcuts import render, get_object_or_404
+from rest_framework import generics, status, permissions, serializers
 from rest_framework.response import Response
 from .serializers import RegisterSerializer, LoginSerializer, ProfileSerializer, FavoriteSerializer, IsFavoriteSerializer
 from rest_framework import generics
 from .models_inspected import Contents
-from .serializers import ContentTitleSerializer, ContentDetailSerializer
+from .serializers import ContentTitleSerializer, ContentDetailSerializer, ContentReviewSerializer
 from django.db.models import Q
-from rest_framework.permissions import IsAuthenticated
-from .models import User, Favorite
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from .models import User, Favorite, ContentReview
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import AllowAny
 
@@ -192,6 +192,46 @@ class SearchView(generics.ListAPIView):
 
         return Contents.objects.filter(query).order_by('-rating', '-vote_count')
 
+
+class IsReviewOwnerOrReadOnly(permissions.BasePermission):
+    """
+    Yorum sahibinin düzenleme/silme yapmasına izin ver
+    """
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return obj.user == request.user
+
+
+class ContentReviewListCreateView(generics.ListCreateAPIView):
+    """
+    Bir içerik için yorum/puan listele ve yeni kayıt oluştur
+    """
+    serializer_class = ContentReviewSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        return ContentReview.objects.filter(content__tmdb_id=self.kwargs['tmdb_id']).select_related('user')
+
+    def perform_create(self, serializer):
+        content = get_object_or_404(Contents, tmdb_id=self.kwargs['tmdb_id'])
+        user = self.request.user
+        if ContentReview.objects.filter(user=user, content=content).exists():
+            raise serializers.ValidationError("Bu içerik için zaten yorumunuz bulunuyor.")
+        serializer.save(user=user, content=content)
+
+
+class ContentReviewDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Tekil yorum için görüntüle/güncelle/sil işlemleri
+    """
+    serializer_class = ContentReviewSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly, IsReviewOwnerOrReadOnly]
+    lookup_field = 'pk'
+
+    def get_queryset(self):
+        return ContentReview.objects.filter(content__tmdb_id=self.kwargs['tmdb_id']).select_related('user')
 
 
 

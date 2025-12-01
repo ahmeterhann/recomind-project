@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from .models_inspected import Contents
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 
@@ -38,4 +39,22 @@ class Favorite(models.Model):
         return f"{self.user.username} - {self.content.title}"
     
 
+class ContentReview(models.Model):
+    """
+    Kullanıcıların içeriklere puan verip yorum bırakmasını sağlar
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='content_reviews')
+    content = models.ForeignKey(Contents, on_delete=models.CASCADE, related_name='content_reviews')
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(10)]
+    )
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        unique_together = ('user', 'content')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.content.title} ({self.rating}/10)"
