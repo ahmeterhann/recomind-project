@@ -3,7 +3,7 @@ from .views import (
     RegisterView, LoginView, MovieListView, MovieByGenreView, TvListView, 
     TvByGenreView, ProfileView, ContentDetailView, FavoriteListCreateView, 
     FavoriteDetailView, IsFavoriteView, SearchView, ContentReviewListCreateView,
-    ContentReviewDetailView
+    ContentReviewDetailView, GenreListView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -27,4 +27,7 @@ urlpatterns = [
     
     # Arama endpoint'i
     path('search/', SearchView.as_view(), name='search'),
+    
+    # Genre listesi endpoint'i
+    path('genres/', GenreListView.as_view(), name='genres'),
 ]

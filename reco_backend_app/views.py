@@ -234,6 +234,51 @@ class ContentReviewDetailView(generics.RetrieveUpdateDestroyAPIView):
         return ContentReview.objects.filter(content__tmdb_id=self.kwargs['tmdb_id']).select_related('user')
 
 
+class GenreListView(generics.GenericAPIView):
+    """
+    Film veya dizi için mevcut genre listesini döndür
+    GET: /genres/?content_type=movie veya /genres/?content_type=tv
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        import json
+        content_type = request.query_params.get('content_type', '').lower()
+        
+        if content_type not in ['movie', 'tv']:
+            return Response(
+                {"error": "content_type parametresi 'movie' veya 'tv' olmalıdır."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Veritabanından ilgili içerikleri çek
+        contents = Contents.objects.filter(content_type__iexact=content_type)
+        
+        # Tüm unique genre'leri topla
+        all_genres = set()
+        for content in contents:
+            if content.genres:
+                # Genre'leri parse et
+                if isinstance(content.genres, list):
+                    genres_list = content.genres
+                else:
+                    try:
+                        genres_list = json.loads(content.genres)
+                        if not isinstance(genres_list, list):
+                            genres_list = [g.strip() for g in content.genres.split(',') if g.strip()]
+                    except:
+                        genres_list = [g.strip() for g in content.genres.split(',') if g.strip()]
+                
+                # Genre'leri set'e ekle
+                for genre in genres_list:
+                    if genre and genre.strip():
+                        all_genres.add(genre.strip())
+        
+        # Alfabetik sırala ve döndür
+        sorted_genres = sorted(list(all_genres))
+        return Response({"genres": sorted_genres}, status=status.HTTP_200_OK)
+
+
 
 
 
