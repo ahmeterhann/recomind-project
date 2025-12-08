@@ -3,7 +3,7 @@ from .views import (
     RegisterView, LoginView, MovieListView, MovieByGenreView, TvListView, 
     TvByGenreView, ProfileView, ContentDetailView, FavoriteListCreateView, 
     FavoriteDetailView, IsFavoriteView, SearchView, ContentReviewListCreateView,
-    ContentReviewDetailView, GenreListView
+    ContentReviewDetailView, GenreListView, ContentCastView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -17,6 +17,7 @@ urlpatterns = [
     path('tv/by-genre/', TvByGenreView.as_view(), name='tv_by_genre'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('contents/<str:tmdb_id>/', ContentDetailView.as_view(), name='content_detail'),
+    path('contents/<str:tmdb_id>/cast/', ContentCastView.as_view(), name='content_cast'),
     
     # Favori endpoint'leri
     path('favorites/', FavoriteListCreateView.as_view(), name='favorite_list_create'),

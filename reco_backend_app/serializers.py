@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models_inspected import Contents   
+from .models_inspected import Contents, People, ContentPeople   
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Favorite, ContentReview
 from django.db.models import Avg, Count
@@ -189,6 +189,37 @@ class ContentReviewSummarySerializer(serializers.Serializer):
     """
     average_rating = serializers.FloatField()
     rating_count = serializers.IntegerField()
+
+
+class PersonSerializer(serializers.ModelSerializer):
+    """
+    Oyuncu bilgilerini serialize eder
+    """
+    class Meta:
+        model = People
+        fields = [
+            'person_id',
+            'name',
+            'profile_url',
+            'biography',
+            'birthday',
+            'birthplace'
+        ]
+
+
+class ContentPeopleSerializer(serializers.ModelSerializer):
+    """
+    Film/Dizi ile oyuncu ilişkisini serialize eder
+    """
+    person = PersonSerializer(read_only=True)
+    
+    class Meta:
+        model = ContentPeople
+        fields = [
+            'person',
+            'role',
+            'character_name'
+        ]
 
 
 

@@ -3,8 +3,8 @@ from rest_framework import generics, status, permissions, serializers
 from rest_framework.response import Response
 from .serializers import RegisterSerializer, LoginSerializer, ProfileSerializer, FavoriteSerializer, IsFavoriteSerializer
 from rest_framework import generics
-from .models_inspected import Contents
-from .serializers import ContentTitleSerializer, ContentDetailSerializer, ContentReviewSerializer
+from .models_inspected import Contents, ContentPeople
+from .serializers import ContentTitleSerializer, ContentDetailSerializer, ContentReviewSerializer, ContentPeopleSerializer
 from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from .models import User, Favorite, ContentReview
@@ -277,6 +277,35 @@ class GenreListView(generics.GenericAPIView):
         # Alfabetik sırala ve döndür
         sorted_genres = sorted(list(all_genres))
         return Response({"genres": sorted_genres}, status=status.HTTP_200_OK)
+
+
+class ContentCastView(generics.ListAPIView):
+    """
+    Bir film/dizi için oyuncu kadrosunu döndürür
+    GET: /contents/<tmdb_id>/cast/
+    Query Parameters:
+        - role: Rol filtresi (örn: "actor", "director") - opsiyonel
+    """
+    serializer_class = ContentPeopleSerializer
+    permission_classes = [AllowAny]
+    
+    def get_queryset(self):
+        tmdb_id = self.kwargs['tmdb_id']
+        role = self.request.query_params.get('role', None)
+        
+        # İçeriğin var olup olmadığını kontrol et
+        content = get_object_or_404(Contents, tmdb_id=tmdb_id)
+        
+        queryset = ContentPeople.objects.filter(
+            content__tmdb_id=tmdb_id
+        ).select_related('person', 'content')
+        
+        # Rol filtresi (opsiyonel)
+        if role:
+            queryset = queryset.filter(role__iexact=role)
+        
+        # Oyuncuları önce role göre, sonra karakter adına göre sırala
+        return queryset.order_by('role', 'character_name')
 
 
 
