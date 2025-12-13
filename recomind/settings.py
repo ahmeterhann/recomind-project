@@ -87,7 +87,7 @@ WSGI_APPLICATION = 'recomind.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'bitirme',
+        'NAME': 'bitirme_v2',
         'USER': 'postgres',
         'PASSWORD': '6090',
         'HOST': 'localhost',
