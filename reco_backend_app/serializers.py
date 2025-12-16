@@ -1,8 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models_inspected import Contents, People, ContentPeople   
+from .models_inspected import Contents, People, ContentPeople, Books, BooksPeople
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Favorite, ContentReview
+from .models import Favorite, ContentReview, BookFavorite, BookReview
 from django.db.models import Avg, Count
 
 
@@ -141,6 +141,123 @@ class ContentDetailSerializer(serializers.ModelSerializer):
         return ContentReviewSerializer(reviews, many=True).data
 
 
+class BookTitleSerializer(serializers.ModelSerializer):
+    categories = serializers.SerializerMethodField()
+    authors = serializers.SerializerMethodField()
+
+    def _parse_list_field(self, value):
+        if not value:
+            return []
+        if isinstance(value, list):
+            return value
+        import json
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [v.strip() for v in str(value).split(',') if v.strip()]
+
+    def get_categories(self, obj):
+        return self._parse_list_field(obj.categories)
+
+    def get_authors(self, obj):
+        return self._parse_list_field(obj.authors)
+
+    class Meta:
+        model = Books
+        fields = [
+            'book_id',
+            'title',
+            'cover_url',
+            'year',
+            'average_rating',
+            'categories',
+            'authors',
+            'pages',
+            'language',
+            'popularity',
+        ]
+
+
+class BookReviewSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)
+    comment = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = BookReview
+        fields = ['id', 'user', 'book', 'rating', 'comment', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at', 'book']
+
+    def validate_rating(self, value):
+        if value < 1 or value > 10:
+            raise serializers.ValidationError("Puan 1 ile 10 arasında olmalıdır.")
+        return value
+
+
+class BookDetailSerializer(serializers.ModelSerializer):
+    categories = serializers.SerializerMethodField()
+    authors = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    rating_count = serializers.SerializerMethodField()
+    latest_reviews = serializers.SerializerMethodField()
+
+    def _parse_list_field(self, value):
+        if not value:
+            return []
+        if isinstance(value, list):
+            return value
+        import json
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [v.strip() for v in str(value).split(',') if v.strip()]
+
+    def get_categories(self, obj):
+        return self._parse_list_field(obj.categories)
+
+    def get_authors(self, obj):
+        return self._parse_list_field(obj.authors)
+
+    def get_description(self, obj):
+        return obj.description_tr or obj.description
+
+    def get_average_rating(self, obj):
+        aggregate = obj.book_reviews.aggregate(avg=Avg('rating'))
+        return aggregate['avg'] or obj.average_rating or 0.0
+
+    def get_rating_count(self, obj):
+        return obj.book_reviews.count()
+
+    def get_latest_reviews(self, obj):
+        reviews = obj.book_reviews.select_related('user').order_by('-created_at')[:5]
+        return BookReviewSerializer(reviews, many=True).data
+
+    class Meta:
+        model = Books
+        fields = [
+            'book_id',
+            'title',
+            'cover_url',
+            'year',
+            'pages',
+            'popularity',
+            'description',
+            'average_rating',
+            'rating_count',
+            'latest_reviews',
+            'categories',
+            'authors',
+            'language',
+            'embedding',
+        ]
+
+
 class FavoriteSerializer(serializers.ModelSerializer):
     """
     Kullanıcının favorilerine içerik ekle/çıkar
@@ -154,6 +271,22 @@ class FavoriteSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         # Giriş yapan kullanıcıyı otomatik ata
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class BookFavoriteSerializer(serializers.ModelSerializer):
+    """
+    Kullanıcının favorilerine kitap ekle/çıkar
+    """
+    book_detail = BookTitleSerializer(source='book', read_only=True)
+
+    class Meta:
+        model = BookFavorite
+        fields = ['id', 'book', 'book_detail', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def create(self, validated_data):
         validated_data['user'] = self.context['request'].user
         return super().create(validated_data)
 
@@ -219,6 +352,20 @@ class ContentPeopleSerializer(serializers.ModelSerializer):
             'person',
             'role',
             'character_name'
+        ]
+
+
+class BookPeopleSerializer(serializers.ModelSerializer):
+    """
+    Kitap ile yazar ilişkisini serialize eder
+    """
+    person = PersonSerializer(read_only=True)
+
+    class Meta:
+        model = BooksPeople
+        fields = [
+            'person',
+            'role'
         ]
 
 

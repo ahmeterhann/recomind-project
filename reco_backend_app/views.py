@@ -1,13 +1,24 @@
 from django.shortcuts import render, get_object_or_404
 from rest_framework import generics, status, permissions, serializers
 from rest_framework.response import Response
-from .serializers import RegisterSerializer, LoginSerializer, ProfileSerializer, FavoriteSerializer, IsFavoriteSerializer
+from .serializers import (
+    RegisterSerializer,
+    LoginSerializer,
+    ProfileSerializer,
+    FavoriteSerializer,
+    IsFavoriteSerializer,
+    BookFavoriteSerializer,
+    BookTitleSerializer,
+    BookDetailSerializer,
+    BookReviewSerializer,
+    BookPeopleSerializer,
+)
 from rest_framework import generics
-from .models_inspected import Contents, ContentPeople
+from .models_inspected import Contents, ContentPeople, Books, BooksPeople
 from .serializers import ContentTitleSerializer, ContentDetailSerializer, ContentReviewSerializer, ContentPeopleSerializer
 from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
-from .models import User, Favorite, ContentReview
+from .models import User, Favorite, ContentReview, BookFavorite, BookReview
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import AllowAny
 
@@ -105,6 +116,28 @@ class TvByGenreView(generics.ListAPIView):
         ).filter(q).order_by("title")
 
 
+class BookListView(generics.ListAPIView):
+    serializer_class = BookTitleSerializer
+
+    def get_queryset(self):
+        return Books.objects.all().order_by("title")
+
+
+class BookByCategoryView(generics.ListAPIView):
+    serializer_class = BookTitleSerializer
+
+    def get_queryset(self):
+        categories = self.request.query_params.getlist("category")
+        if not categories:
+            return Books.objects.none()
+
+        q = Q()
+        for category in categories:
+            q |= Q(categories__icontains=category)
+
+        return Books.objects.filter(q).order_by("title")
+
+
 class ProfileView(generics.RetrieveUpdateAPIView):
     """
     Kullanıcı profil bilgilerini getir ve güncelle
@@ -123,6 +156,12 @@ class ContentDetailView(generics.RetrieveAPIView):
     lookup_field = 'tmdb_id'
 
 
+class BookDetailView(generics.RetrieveAPIView):
+    queryset = Books.objects.all()
+    serializer_class = BookDetailSerializer
+    lookup_field = 'book_id'
+
+
 class FavoriteListCreateView(generics.ListCreateAPIView):
     """
     Favorileri listele ve yeni favori ekle
@@ -136,6 +175,17 @@ class FavoriteListCreateView(generics.ListCreateAPIView):
         return Favorite.objects.filter(user=self.request.user)
 
 
+class BookFavoriteListCreateView(generics.ListCreateAPIView):
+    """
+    Kitap favorilerini listele ve yeni favori ekle
+    """
+    serializer_class = BookFavoriteSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return BookFavorite.objects.filter(user=self.request.user)
+
+
 class FavoriteDetailView(generics.DestroyAPIView):
     """
     Favorilerden çıkar
@@ -147,6 +197,18 @@ class FavoriteDetailView(generics.DestroyAPIView):
 
     def get_queryset(self):
         return Favorite.objects.filter(user=self.request.user)
+
+
+class BookFavoriteDetailView(generics.DestroyAPIView):
+    """
+    Kitabı favorilerden çıkar
+    """
+    serializer_class = BookFavoriteSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'book'
+
+    def get_queryset(self):
+        return BookFavorite.objects.filter(user=self.request.user)
 
 
 class IsFavoriteView(generics.GenericAPIView):
@@ -165,32 +227,60 @@ class IsFavoriteView(generics.GenericAPIView):
             return Response({"is_favorite": False})
 
 
-class SearchView(generics.ListAPIView):
+class IsBookFavoriteView(generics.GenericAPIView):
     """
-    Film ve dizi arama
-    GET: /search/?q=inception&content_type=movie
-    Parameters:
-        - q: Aranacak kelime (zorunlu)
-        - content_type: "movie" veya "tv" (opsiyonel)
+    Bir kitabın favoride olup olmadığını kontrol et
+    GET: /books/<book_id>/is-favorite/
     """
-    serializer_class = ContentTitleSerializer
+    permission_classes = [IsAuthenticated]
+    serializer_class = IsFavoriteSerializer
+
+    def get(self, request, book_id):
+        try:
+            BookFavorite.objects.get(user=request.user, book__book_id=book_id)
+            return Response({"is_favorite": True})
+        except BookFavorite.DoesNotExist:
+            return Response({"is_favorite": False})
+
+
+class SearchView(generics.GenericAPIView):
+    """
+    Film, dizi ve kitap arama (birleşik)
+    GET: /search/?q=inception&content_type=movie|tv|book
+    """
     permission_classes = [AllowAny]
 
-    def get_queryset(self):
-        q = self.request.query_params.get('q', '').strip()
-        content_type = self.request.query_params.get('content_type', None)
+    def get(self, request):
+        q = request.query_params.get('q', '').strip()
+        content_type = request.query_params.get('content_type', None)
 
         if not q or len(q) < 1:
-            return Contents.objects.none()
+            return Response({"results": [], "count": 0})
 
-        # Başlık veya açıklamada arama yap
-        query = Q(title__icontains=q) | Q(overview__icontains=q)
-        
-        # İçerik tipi filtresi (opsiyonel)
-        if content_type in ['movie', 'tv']:
-            query &= Q(content_type__iexact=content_type)
+        results = []
 
-        return Contents.objects.filter(query).order_by('-rating', '-vote_count')
+        if content_type is None or content_type in ['movie', 'tv']:
+            contents_query = Q(title__icontains=q) | Q(overview__icontains=q)
+            if content_type in ['movie', 'tv']:
+                contents_query &= Q(content_type__iexact=content_type)
+
+            contents = Contents.objects.filter(contents_query).order_by('-rating', '-vote_count')[:20]
+            for content in contents:
+                results.append({
+                    "type": "content",
+                    "data": ContentTitleSerializer(content).data
+                })
+
+        if content_type is None or content_type == 'book':
+            books_query = Q(title__icontains=q) | Q(description__icontains=q) | Q(authors__icontains=q)
+            books = Books.objects.filter(books_query).order_by('-average_rating', '-popularity')[:20]
+            for book in books:
+                results.append({
+                    "type": "book",
+                    "data": BookTitleSerializer(book).data
+                })
+
+        return Response({"results": results, "count": len(results)})
 
 
 class IsReviewOwnerOrReadOnly(permissions.BasePermission):
@@ -222,6 +312,24 @@ class ContentReviewListCreateView(generics.ListCreateAPIView):
         serializer.save(user=user, content=content)
 
 
+class BookReviewListCreateView(generics.ListCreateAPIView):
+    """
+    Bir kitap için yorum/puan listele ve yeni kayıt oluştur
+    """
+    serializer_class = BookReviewSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        return BookReview.objects.filter(book__book_id=self.kwargs['book_id']).select_related('user')
+
+    def perform_create(self, serializer):
+        book = get_object_or_404(Books, book_id=self.kwargs['book_id'])
+        user = self.request.user
+        if BookReview.objects.filter(user=user, book=book).exists():
+            raise serializers.ValidationError("Bu kitap için zaten yorumunuz bulunuyor.")
+        serializer.save(user=user, book=book)
+
+
 class ContentReviewDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Tekil yorum için görüntüle/güncelle/sil işlemleri
@@ -232,6 +340,18 @@ class ContentReviewDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return ContentReview.objects.filter(content__tmdb_id=self.kwargs['tmdb_id']).select_related('user')
+
+
+class BookReviewDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Tekil kitap yorumu için görüntüle/güncelle/sil işlemleri
+    """
+    serializer_class = BookReviewSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly, IsReviewOwnerOrReadOnly]
+    lookup_field = 'pk'
+
+    def get_queryset(self):
+        return BookReview.objects.filter(book__book_id=self.kwargs['book_id']).select_related('user')
 
 
 class GenreListView(generics.GenericAPIView):
@@ -279,6 +399,35 @@ class GenreListView(generics.GenericAPIView):
         return Response({"genres": sorted_genres}, status=status.HTTP_200_OK)
 
 
+class BookCategoryListView(generics.GenericAPIView):
+    """
+    Kitaplar için mevcut kategori listesini döndür
+    GET: /books/categories/
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        import json
+        books = Books.objects.all()
+        all_categories = set()
+        for book in books:
+            if book.categories:
+                if isinstance(book.categories, list):
+                    categories_list = book.categories
+                else:
+                    try:
+                        categories_list = json.loads(book.categories)
+                        if not isinstance(categories_list, list):
+                            categories_list = [c.strip() for c in str(book.categories).split(',') if c.strip()]
+                    except Exception:
+                        categories_list = [c.strip() for c in str(book.categories).split(',') if c.strip()]
+                for category in categories_list:
+                    if category and str(category).strip():
+                        all_categories.add(str(category).strip())
+        sorted_categories = sorted(list(all_categories))
+        return Response({"categories": sorted_categories}, status=status.HTTP_200_OK)
+
+
 class ContentCastView(generics.ListAPIView):
     """
     Bir film/dizi için oyuncu kadrosunu döndürür
@@ -306,6 +455,23 @@ class ContentCastView(generics.ListAPIView):
         
         # Oyuncuları önce role göre, sonra karakter adına göre sırala
         return queryset.order_by('role', 'character_name')
+
+
+class BookAuthorsView(generics.ListAPIView):
+    """
+    Bir kitap için yazar listesini döndürür
+    GET: /books/<book_id>/authors/
+    """
+    serializer_class = BookPeopleSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        book_id = self.kwargs['book_id']
+        get_object_or_404(Books, book_id=book_id)
+        queryset = BooksPeople.objects.filter(
+            book__book_id=book_id
+        ).select_related('person', 'book')
+        return queryset.order_by('role', 'person__name')
 
 
 

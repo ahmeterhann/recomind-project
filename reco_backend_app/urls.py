@@ -3,7 +3,10 @@ from .views import (
     RegisterView, LoginView, MovieListView, MovieByGenreView, TvListView, 
     TvByGenreView, ProfileView, ContentDetailView, FavoriteListCreateView, 
     FavoriteDetailView, IsFavoriteView, SearchView, ContentReviewListCreateView,
-    ContentReviewDetailView, GenreListView, ContentCastView
+    ContentReviewDetailView, GenreListView, ContentCastView,
+    BookListView, BookByCategoryView, BookDetailView, BookAuthorsView, BookCategoryListView,
+    BookFavoriteListCreateView, BookFavoriteDetailView, IsBookFavoriteView,
+    BookReviewListCreateView, BookReviewDetailView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -19,12 +22,24 @@ urlpatterns = [
     path('contents/<str:tmdb_id>/', ContentDetailView.as_view(), name='content_detail'),
     path('contents/<str:tmdb_id>/cast/', ContentCastView.as_view(), name='content_cast'),
     
+    # Kitap endpoint'leri
+    path('books/', BookListView.as_view(), name='books'),
+    path('books/by-category/', BookByCategoryView.as_view(), name='books_by_category'),
+    path('books/categories/', BookCategoryListView.as_view(), name='book_categories'),
+    path('books/<str:book_id>/', BookDetailView.as_view(), name='book_detail'),
+    path('books/<str:book_id>/authors/', BookAuthorsView.as_view(), name='book_authors'),
+
     # Favori endpoint'leri
     path('favorites/', FavoriteListCreateView.as_view(), name='favorite_list_create'),
     path('favorites/<str:content>/', FavoriteDetailView.as_view(), name='favorite_detail'),
     path('contents/<str:tmdb_id>/is-favorite/', IsFavoriteView.as_view(), name='is_favorite'),
     path('contents/<str:tmdb_id>/reviews/', ContentReviewListCreateView.as_view(), name='content_reviews'),
     path('contents/<str:tmdb_id>/reviews/<int:pk>/', ContentReviewDetailView.as_view(), name='content_review_detail'),
+    path('book-favorites/', BookFavoriteListCreateView.as_view(), name='book_favorite_list_create'),
+    path('book-favorites/<str:book>/', BookFavoriteDetailView.as_view(), name='book_favorite_detail'),
+    path('books/<str:book_id>/is-favorite/', IsBookFavoriteView.as_view(), name='is_book_favorite'),
+    path('books/<str:book_id>/reviews/', BookReviewListCreateView.as_view(), name='book_reviews'),
+    path('books/<str:book_id>/reviews/<int:pk>/', BookReviewDetailView.as_view(), name='book_review_detail'),
     
     # Arama endpoint'i
     path('search/', SearchView.as_view(), name='search'),
