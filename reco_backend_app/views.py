@@ -12,13 +12,15 @@ from .serializers import (
     BookDetailSerializer,
     BookReviewSerializer,
     BookPeopleSerializer,
+    FriendshipSerializer,
+    UserSearchSerializer,
 )
 from rest_framework import generics
 from .models_inspected import Contents, ContentPeople, Books, BooksPeople
 from .serializers import ContentTitleSerializer, ContentDetailSerializer, ContentReviewSerializer, ContentPeopleSerializer
 from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
-from .models import User, Favorite, ContentReview, BookFavorite, BookReview
+from .models import User, Favorite, ContentReview, BookFavorite, BookReview, Friendship
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import AllowAny
 
@@ -474,6 +476,179 @@ class BookAuthorsView(generics.ListAPIView):
         return queryset.order_by('role', 'person__name')
 
 
+class SendFriendRequestView(generics.CreateAPIView):
+    """
+    Arkadaşlık isteği gönder
+    POST: /friends/request/
+    Body: {"receiver_username": "kullanici_adi"}
+    """
+    serializer_class = FriendshipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        receiver_username = request.data.get('receiver_username')
+        
+        if not receiver_username:
+            return Response(
+                {"error": "receiver_username gerekli"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            receiver = User.objects.get(username=receiver_username)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Kullanıcı bulunamadı"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        if receiver == request.user:
+            return Response(
+                {"error": "Kendinize arkadaşlık isteği gönderemezsiniz"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Zaten arkadaşlık isteği var mı kontrol et
+        existing = Friendship.objects.filter(
+            (Q(requester=request.user, receiver=receiver) | 
+             Q(requester=receiver, receiver=request.user))
+        ).first()
+        
+        if existing:
+            if existing.status == 'accepted':
+                return Response(
+                    {"error": "Zaten arkadaşsınız"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            elif existing.status == 'pending':
+                if existing.requester == request.user:
+                    return Response(
+                        {"error": "Zaten arkadaşlık isteği gönderdiniz"}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    # Karşı taraftan gelen isteği otomatik kabul et
+                    existing.status = 'accepted'
+                    existing.save()
+                    serializer = self.get_serializer(existing)
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+        
+        # Yeni istek oluştur
+        friendship = Friendship.objects.create(
+            requester=request.user,
+            receiver=receiver,
+            status='pending'
+        )
+        serializer = self.get_serializer(friendship)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class FriendRequestListView(generics.ListAPIView):
+    """
+    Gelen arkadaşlık isteklerini listele
+    GET: /friends/requests/
+    """
+    serializer_class = FriendshipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Friendship.objects.filter(
+            receiver=self.request.user,
+            status='pending'
+        ).select_related('requester', 'receiver')
+
+
+class AcceptFriendRequestView(generics.UpdateAPIView):
+    """
+    Arkadaşlık isteğini kabul et
+    PATCH: /friends/requests/<id>/accept/
+    """
+    serializer_class = FriendshipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Friendship.objects.filter(
+            receiver=self.request.user,
+            status='pending'
+        )
+
+    def patch(self, request, *args, **kwargs):
+        friendship = self.get_object()
+        friendship.status = 'accepted'
+        friendship.save()
+        serializer = self.get_serializer(friendship)
+        return Response(serializer.data)
+
+
+class RejectFriendRequestView(generics.UpdateAPIView):
+    """
+    Arkadaşlık isteğini reddet
+    PATCH: /friends/requests/<id>/reject/
+    """
+    serializer_class = FriendshipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Friendship.objects.filter(
+            receiver=self.request.user,
+            status='pending'
+        )
+
+    def patch(self, request, *args, **kwargs):
+        friendship = self.get_object()
+        friendship.status = 'rejected'
+        friendship.save()
+        return Response({"message": "Arkadaşlık isteği reddedildi"})
+
+
+class FriendsListView(generics.ListAPIView):
+    """
+    Arkadaş listesini getir
+    GET: /friends/
+    """
+    serializer_class = FriendshipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Friendship.objects.filter(
+            (Q(requester=self.request.user) | Q(receiver=self.request.user)),
+            status='accepted'
+        ).select_related('requester', 'receiver')
+
+
+class RemoveFriendView(generics.DestroyAPIView):
+    """
+    Arkadaşlığı kaldır
+    DELETE: /friends/<id>/
+    """
+    serializer_class = FriendshipSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Friendship.objects.filter(
+            (Q(requester=self.request.user) | Q(receiver=self.request.user)),
+            status='accepted'
+        )
+
+
+class SearchUsersView(generics.ListAPIView):
+    """
+    Kullanıcı ara
+    GET: /users/search/?q=kullanici_adi
+    """
+    serializer_class = UserSearchSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        query = self.request.query_params.get('q', '').strip()
+        if not query or len(query) < 2:
+            return User.objects.none()
+        
+        return User.objects.filter(
+            Q(username__icontains=query) | 
+            Q(first_name__icontains=query) | 
+            Q(last_name__icontains=query)
+        ).exclude(id=self.request.user.id)[:20]
 
 
 

@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models_inspected import Contents, People, ContentPeople, Books, BooksPeople
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Favorite, ContentReview, BookFavorite, BookReview
+from .models import Favorite, ContentReview, BookFavorite, BookReview, Friendship
 from django.db.models import Avg, Count
 
 
@@ -10,7 +10,27 @@ from django.db.models import Avg, Count
 User = get_user_model()
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(
+        write_only=True,
+        error_messages={
+            'required': 'Şifre alanı zorunludur.',
+            'blank': 'Şifre alanı boş bırakılamaz.'
+        }
+    )
+    username = serializers.CharField(
+        error_messages={
+            'required': 'Kullanıcı adı alanı zorunludur.',
+            'blank': 'Kullanıcı adı alanı boş bırakılamaz.',
+            'max_length': 'Kullanıcı adı çok uzun.'
+        }
+    )
+    email = serializers.EmailField(
+        error_messages={
+            'required': 'E-posta alanı zorunludur.',
+            'blank': 'E-posta alanı boş bırakılamaz.',
+            'invalid': 'Geçerli bir e-posta adresi girin.'
+        }
+    )
 
     class Meta:
         model = User
@@ -20,6 +40,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
+        from django.db import IntegrityError
+        
         user = User(
             username=validated_data['username'],
             first_name=validated_data.get('first_name', ''),
@@ -31,12 +53,42 @@ class RegisterSerializer(serializers.ModelSerializer):
             country=validated_data.get('country', ''),
         )
         user.set_password(validated_data['password'])
-        user.save()
+        
+        try:
+            user.save()
+        except IntegrityError as e:
+            error_message = str(e)
+            # Kullanıcı adı veya email zaten kullanılıyor kontrolü
+            if 'username' in error_message.lower() or 'reco_backend_app_user_username_key' in error_message:
+                raise serializers.ValidationError({
+                    'username': ['Bu kullanıcı adı zaten kullanılıyor.']
+                })
+            elif 'email' in error_message.lower() or 'reco_backend_app_user_email_key' in error_message:
+                raise serializers.ValidationError({
+                    'email': ['Bu e-posta adresi zaten kullanılıyor.']
+                })
+            else:
+                raise serializers.ValidationError({
+                    'non_field_errors': ['Kayıt sırasında bir hata oluştu. Lütfen bilgilerinizi kontrol edin.']
+                })
+        
         return user
     
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    email = serializers.EmailField(
+        error_messages={
+            'required': 'E-posta alanı zorunludur.',
+            'blank': 'E-posta alanı boş bırakılamaz.',
+            'invalid': 'Geçerli bir e-posta adresi girin.'
+        }
+    )
+    password = serializers.CharField(
+        write_only=True,
+        error_messages={
+            'required': 'Şifre alanı zorunludur.',
+            'blank': 'Şifre alanı boş bırakılamaz.'
+        }
+    )
 
     def validate(self, attrs):
         email = attrs.get("email")
@@ -367,6 +419,31 @@ class BookPeopleSerializer(serializers.ModelSerializer):
             'person',
             'role'
         ]
+
+
+class UserSearchSerializer(serializers.ModelSerializer):
+    """
+    Kullanıcı arama için basit serializer
+    """
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'email']
+
+
+class FriendshipSerializer(serializers.ModelSerializer):
+    """
+    Arkadaşlık isteği serializer
+    """
+    requester = ProfileSerializer(read_only=True)
+    receiver = ProfileSerializer(read_only=True)
+    requester_username = serializers.CharField(source='requester.username', read_only=True)
+    receiver_username = serializers.CharField(source='receiver.username', read_only=True)
+
+    class Meta:
+        model = Friendship
+        fields = ['id', 'requester', 'receiver', 'requester_username', 'receiver_username', 
+                  'status', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 
