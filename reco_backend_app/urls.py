@@ -8,7 +8,7 @@ from .views import (
     BookFavoriteListCreateView, BookFavoriteDetailView, IsBookFavoriteView,
     BookReviewListCreateView, BookReviewDetailView,
     SendFriendRequestView, FriendRequestListView, AcceptFriendRequestView,
-    RejectFriendRequestView, FriendsListView, RemoveFriendView, SearchUsersView
+    RejectFriendRequestView, FriendsListView, RemoveFriendView, SearchUsersView, RecommendationView
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -48,6 +48,9 @@ urlpatterns = [
     
     # Genre listesi endpoint'i
     path('genres/', GenreListView.as_view(), name='genres'),
+
+    # Recommendation endpoint'leri
+    path('recommendations/<str:content_type>/', RecommendationView.as_view(), name='recommendations'),
     
     # Arkadaşlık endpoint'leri
     path('friends/', FriendsListView.as_view(), name='friends_list'),
@@ -58,3 +61,5 @@ urlpatterns = [
     path('friends/<int:pk>/', RemoveFriendView.as_view(), name='remove_friend'),
     path('users/search/', SearchUsersView.as_view(), name='search_users'),
 ]
+
+    

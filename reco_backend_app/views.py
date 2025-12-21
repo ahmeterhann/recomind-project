@@ -23,7 +23,8 @@ from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnl
 from .models import User, Favorite, ContentReview, BookFavorite, BookReview, Friendship
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import AllowAny
-
+import requests
+from django.conf import settings
 
 class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
@@ -650,7 +651,206 @@ class SearchUsersView(generics.ListAPIView):
             Q(last_name__icontains=query)
         ).exclude(id=self.request.user.id)[:20]
 
-
+class RecommendationView(generics.GenericAPIView):
+    """
+    FastAPI recommendation servisinden önerileri alır ve detaylarla zenginleştirir.
+    
+    GET /recommendations/movies/?genre=Action&limit=30
+    GET /recommendations/tv/?genre=Drama&limit=20
+    GET /recommendations/books/?genre=Fiction&limit=30
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, content_type):
+        """
+        content_type: 'movies', 'tv', 'books'
+        Query params: genre (optional), limit (optional)
+        """
+        # Query parametrelerini al
+        genre = request.query_params.get('genre', None)
+        limit = int(request.query_params.get('limit', 30))
+        
+        # FastAPI endpoint'ini belirle
+        if content_type == 'movies':
+            fastapi_endpoint = '/recommend/movies'
+        elif content_type == 'tv':
+            fastapi_endpoint = '/recommend/tv'
+        elif content_type == 'books':
+            fastapi_endpoint = '/recommend/books'
+        else:
+            return Response(
+                {"error": "Geçersiz content_type. 'movies', 'tv' veya 'books' olmalıdır."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # FastAPI'ye istek gönder
+        fastapi_url = f"{settings.RECOMMENDATION_API_URL}{fastapi_endpoint}"
+        
+        payload = {
+            "genre": genre,
+            "limit": limit
+        }
+        
+        headers = {
+            "X-User-ID": str(request.user.id),
+            "Content-Type": "application/json"
+        }
+        
+        # Debug log
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[DEBUG] RecommendationView - user_id: {request.user.id}, username: {request.user.username}, content_type: {content_type}")
+        logger.info(f"[DEBUG] RecommendationView - FastAPI URL: {fastapi_url}")
+        logger.info(f"[DEBUG] RecommendationView - Headers: {headers}")
+        
+        try:
+            # FastAPI'ye POST isteği gönder
+            response = requests.post(
+                fastapi_url,
+                json=payload,
+                headers=headers,
+                timeout=30  # 30 saniye timeout
+            )
+            
+            # HTTP hata kontrolü
+            response.raise_for_status()
+            
+            # FastAPI'den gelen önerileri al
+            recommendations = response.json()
+            
+            # Eğer boş liste dönerse
+            if not recommendations:
+                return Response([], status=status.HTTP_200_OK)
+            
+            # Detay bilgileriyle zenginleştir
+            enriched_recommendations = self._enrich_recommendations(
+                recommendations, content_type
+            )
+            
+            return Response(enriched_recommendations, status=status.HTTP_200_OK)
+            
+        except requests.exceptions.Timeout:
+            return Response(
+                {"error": "Öneri servisi zaman aşımına uğradı. Lütfen tekrar deneyin."},
+                status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
+        except requests.exceptions.ConnectionError:
+            return Response(
+                {"error": "Öneri servisine bağlanılamadı. Lütfen daha sonra tekrar deneyin."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except requests.exceptions.HTTPError as e:
+            return Response(
+                {"error": f"Öneri servisi hatası: {str(e)}"},
+                status=status.HTTP_502_BAD_GATEWAY
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Beklenmeyen hata: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _enrich_recommendations(self, recommendations, content_type):
+        """
+        FastAPI'den gelen önerileri Django modellerinden detay bilgileriyle zenginleştirir.
+        """
+        if content_type == 'books':
+            # Kitap önerileri için
+            book_ids = [r.get('book_id') for r in recommendations if r.get('book_id')]
+            
+            if not book_ids:
+                return []
+            
+            # Kitapları veritabanından çek
+            books = Books.objects.filter(book_id__in=book_ids)
+            book_map = {book.book_id: book for book in books}
+            
+            # Önerileri score sırasına göre koruyarak zenginleştir
+            enriched = []
+            for rec in recommendations:
+                book_id = rec.get('book_id')
+                if book_id and book_id in book_map:
+                    book = book_map[book_id]
+                    
+                    # BookTitleSerializer formatında döndür
+                    enriched.append({
+                        'book_id': book.book_id,
+                        'title': book.title,
+                        'cover_url': book.cover_url,
+                        'year': book.year,
+                        'average_rating': float(book.average_rating) if book.average_rating else 0.0,
+                        'categories': self._parse_list_field(book.categories),
+                        'authors': self._parse_list_field(book.authors),
+                        'pages': book.pages,
+                        'language': book.language,
+                        'popularity': float(book.popularity) if book.popularity else 0.0,
+                        'recommendation_score': rec.get('score', 0.0)  # FastAPI'den gelen score
+                    })
+            
+            return enriched
+            
+        else:  # movies veya tv
+            # Film/Dizi önerileri için
+            tmdb_ids = [r.get('tmdb_id') for r in recommendations if r.get('tmdb_id')]
+            
+            if not tmdb_ids:
+                return []
+            
+            # İçerikleri veritabanından çek
+            contents = Contents.objects.filter(tmdb_id__in=tmdb_ids)
+            content_map = {str(content.tmdb_id): content for content in contents}
+            
+            # Önerileri score sırasına göre koruyarak zenginleştir
+            enriched = []
+            for rec in recommendations:
+                tmdb_id = rec.get('tmdb_id')
+                if tmdb_id and str(tmdb_id) in content_map:
+                    content = content_map[str(tmdb_id)]
+                    
+                    # ContentTitleSerializer formatında döndür
+                    enriched.append({
+                        'tmdb_id': content.tmdb_id,
+                        'title': content.title,
+                        'image_url': content.image_url,
+                        'release_year': content.release_year,
+                        'rating': float(content.rating) if content.rating else 0.0,
+                        'vote_count': content.vote_count or 0,
+                        'genres': self._parse_genres(content.genres),
+                        'content_type': content.content_type,
+                        'recommendation_score': rec.get('score', 0.0)  # FastAPI'den gelen score
+                    })
+            
+            return enriched
+    
+    def _parse_list_field(self, value):
+        """Kitaplar için list field parse et"""
+        if not value:
+            return []
+        if isinstance(value, list):
+            return value
+        import json
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [v.strip() for v in str(value).split(',') if v.strip()]
+    
+    def _parse_genres(self, value):
+        """Film/Dizi için genres parse et"""
+        if not value:
+            return []
+        if isinstance(value, list):
+            return value
+        import json
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [g.strip() for g in str(value).split(',') if g.strip()]
 
 
 

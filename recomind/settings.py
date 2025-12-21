@@ -169,3 +169,6 @@ SIMPLE_JWT = {
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
 }
+
+# Recommendation API (FastAPI) Ayarları
+RECOMMENDATION_API_URL = 'http://localhost:8001'  # FastAPI servisinin portu

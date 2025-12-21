@@ -53,6 +53,7 @@ class ContentReview(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'reviews'
         unique_together = ('user', 'content')
         ordering = ['-created_at']
 
@@ -90,6 +91,7 @@ class BookReview(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'user_books'
         unique_together = ('user', 'book')
         ordering = ['-created_at']
 
